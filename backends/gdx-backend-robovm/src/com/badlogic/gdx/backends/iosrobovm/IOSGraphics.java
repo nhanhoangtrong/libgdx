@@ -33,9 +33,7 @@ import com.badlogic.gdx.graphics.glutils.HdpiMode;
 import com.badlogic.gdx.utils.Array;
 
 import org.robovm.apple.coregraphics.CGRect;
-import org.robovm.apple.foundation.Foundation;
 import org.robovm.apple.foundation.NSObject;
-import org.robovm.apple.foundation.NSProcessInfo;
 import org.robovm.apple.glkit.GLKView;
 import org.robovm.apple.glkit.GLKViewController;
 import org.robovm.apple.glkit.GLKViewControllerDelegate;
@@ -81,6 +79,8 @@ public class IOSGraphics extends AbstractGraphics {
 	private long frameId = -1;
 	private boolean isContinuous = true;
 	private boolean isFrameRequested = true;
+
+	private boolean firstFrame = true;
 
 	IOSApplicationConfiguration config;
 	EAGLContext context;
@@ -147,14 +147,11 @@ public class IOSGraphics extends AbstractGraphics {
 		viewController.setDelegate(viewDelegate);
 
 		int preferredFps;
+		int maxSupportedFPS = (int)(UIScreen.getMainScreen().getMaximumFramesPerSecond());
 		if (config.preferredFramesPerSecond == 0) {
-			if (NSProcessInfo.getSharedProcessInfo().getOperatingSystemVersion().getMajorVersion() >= 11) {
-				preferredFps = (int)(UIScreen.getMainScreen().getMaximumFramesPerSecond());
-			} else {
-				preferredFps = 60;
-			}
+			preferredFps = maxSupportedFPS;
 		} else {
-			preferredFps = config.preferredFramesPerSecond;
+			preferredFps = Math.min(config.preferredFramesPerSecond, maxSupportedFPS);
 		}
 		viewController.setPreferredFramesPerSecond(preferredFps);
 
@@ -245,6 +242,13 @@ public class IOSGraphics extends AbstractGraphics {
 		// massive hack, GLKView resets the viewport on each draw call, so IOSGLES20
 		// stores the last known viewport and we reset it here...
 		gl20.glViewport(IOSGLES20.x, IOSGLES20.y, IOSGLES20.width, IOSGLES20.height);
+
+		// For default framebuffer, we render a dummy frame during initialization before create
+		// Return early so listener does not process
+		if (firstFrame) {
+			firstFrame = false;
+			return;
+		}
 
 		if (appPaused) {
 			return;
@@ -480,18 +484,16 @@ public class IOSGraphics extends AbstractGraphics {
 		safeInsetRight = 0;
 		safeInsetBottom = 0;
 
-		if (Foundation.getMajorSystemVersion() >= 11) {
-			UIEdgeInsets edgeInsets = viewController.getView().getSafeAreaInsets();
-			safeInsetTop = (int)edgeInsets.getTop();
-			safeInsetLeft = (int)edgeInsets.getLeft();
-			safeInsetRight = (int)edgeInsets.getRight();
-			safeInsetBottom = (int)edgeInsets.getBottom();
-			if (config.hdpiMode == HdpiMode.Pixels) {
-				safeInsetTop *= app.pixelsPerPoint;
-				safeInsetLeft *= app.pixelsPerPoint;
-				safeInsetRight *= app.pixelsPerPoint;
-				safeInsetBottom *= app.pixelsPerPoint;
-			}
+		UIEdgeInsets edgeInsets = viewController.getView().getSafeAreaInsets();
+		safeInsetTop = (int)edgeInsets.getTop();
+		safeInsetLeft = (int)edgeInsets.getLeft();
+		safeInsetRight = (int)edgeInsets.getRight();
+		safeInsetBottom = (int)edgeInsets.getBottom();
+		if (config.hdpiMode == HdpiMode.Pixels) {
+			safeInsetTop *= app.pixelsPerPoint;
+			safeInsetLeft *= app.pixelsPerPoint;
+			safeInsetRight *= app.pixelsPerPoint;
+			safeInsetBottom *= app.pixelsPerPoint;
 		}
 	}
 
