@@ -638,8 +638,25 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glGetFramebufferAttachmentParameteriv (int target, int attachment, int pname, IntBuffer params) {
-		// FIXME
-		throw new GdxRuntimeException("not implemented");
+		switch (pname) {
+		case GL20.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE:
+		case GL20.GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL:
+		case GL20.GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_CUBE_MAP_FACE:
+			params.put(0, gl.getFramebufferAttachmentParameteri(target, attachment, pname));
+			params.flip();
+			break;
+		case GL20.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME:
+			WebGLTexture tex = gl.getParametero(pname);
+			if (tex == null) {
+				params.put(0);
+			} else {
+				params.put(textures.getKey(tex));
+			}
+			params.flip();
+			return;
+		default:
+			throw new GdxRuntimeException("glGetFramebufferAttachmentParameteriv Invalid enum for WebGL backend.");
+		}
 	}
 
 	@Override
@@ -932,28 +949,38 @@ public class GwtGL20 implements GL20 {
 		if (pixels == null) {
 			gl.texImage2D(target, level, internalformat, width, height, border, format, type, null);
 		} else {
-			if (pixels.limit() > 1) {
+			if (pixels instanceof FloatBuffer) {
 				HasArrayBufferView arrayHolder = (HasArrayBufferView)pixels;
-				ArrayBufferView webGLArray = arrayHolder.getTypedArray();
-				ArrayBufferView buffer;
-				if (pixels instanceof FloatBuffer) {
-					buffer = webGLArray;
-				} else {
+				ArrayBufferView buffer = arrayHolder.getTypedArray();
+				gl.texImage2D(target, level, internalformat, width, height, border, format, type, buffer);
+			} else if (pixels instanceof IntBuffer) {
+				if (pixels.limit() > 1) {
+					HasArrayBufferView arrayHolder = (HasArrayBufferView)pixels;
+					ArrayBufferView webGLArray = arrayHolder.getTypedArray();
 					int remainingBytes = pixels.remaining() * 4;
 					int byteOffset = webGLArray.byteOffset() + pixels.position() * 4;
-					buffer = Uint8ArrayNative.create(webGLArray.buffer(), byteOffset, remainingBytes);
+					ArrayBufferView buffer = Uint8ArrayNative.create(webGLArray.buffer(), byteOffset, remainingBytes);
+					gl.texImage2D(target, level, internalformat, width, height, border, format, type, buffer);
+				} else {
+					Pixmap pixmap = Pixmap.pixmaps.get(((IntBuffer)pixels).get(0));
+					// Prefer to use the HTMLImageElement when possible, since reading from the CanvasElement can be lossy.
+					if (pixmap.canUseImageElement()) {
+						gl.texImage2D(target, level, internalformat, format, type, pixmap.getImageElement());
+					} else if (pixmap.canUseVideoElement()) {
+						gl.texImage2D(target, level, internalformat, format, type, pixmap.getVideoElement());
+					} else {
+						gl.texImage2D(target, level, internalformat, format, type, pixmap.getCanvasElement());
+					}
 				}
+			} else if (pixels instanceof ByteBuffer) {
+				HasArrayBufferView arrayHolder = (HasArrayBufferView)pixels;
+				ArrayBufferView webGLArray = arrayHolder.getTypedArray();
+				int remainingBytes = pixels.remaining();
+				int byteOffset = webGLArray.byteOffset() + pixels.position();
+				ArrayBufferView buffer = Uint8ArrayNative.create(webGLArray.buffer(), byteOffset, remainingBytes);
 				gl.texImage2D(target, level, internalformat, width, height, border, format, type, buffer);
 			} else {
-				Pixmap pixmap = Pixmap.pixmaps.get(((IntBuffer)pixels).get(0));
-				// Prefer to use the HTMLImageElement when possible, since reading from the CanvasElement can be lossy.
-				if (pixmap.canUseImageElement()) {
-					gl.texImage2D(target, level, internalformat, format, type, pixmap.getImageElement());
-				} else if (pixmap.canUseVideoElement()) {
-					gl.texImage2D(target, level, internalformat, format, type, pixmap.getVideoElement());
-				} else {
-					gl.texImage2D(target, level, internalformat, format, type, pixmap.getCanvasElement());
-				}
+				throw new GdxRuntimeException("Unsupported Buffer type");
 			}
 		}
 	}
